@@ -123,6 +123,18 @@ patterns while human writing is naturally variable and irregular.
 Signals are combined into a single confidence score between 0–1 
 where 1 = high confidence AI and 0 = high confidence human.
 
+Both signals produce a score between 0-1. They are combined 
+using a weighted average that trusts the LLM signal more:
+
+confidence = (llm_score * 0.6) + (stylometric_score * 0.4)
+
+The LLM is weighted higher (60%) because semantic patterns 
+are harder to fake than surface statistics. Stylometrics 
+adds structural evidence but is weighted lower (40%) because 
+consistent human writers can fool it.
+
+
+
 ### Thresholds
 | Score Range | Classification |
 |-------------|---------------|
@@ -203,3 +215,39 @@ Each log entry captures:
 - label (transparency label text)
 - status (classified, under_review)
 - appeal_reasoning (if appeal was filed)
+
+
+
+
+## AI Tool Plan
+
+### M3 — Submission Endpoint + Signal 1
+- **Spec sections to provide:** Architecture diagram, 
+Detection Signals, API Surface
+- **What to ask for:** Flask app skeleton with POST /submit 
+route stub and the Signal 1 LLM classification function
+- **How to verify:** Test the LLM function independently 
+with 2-3 sample texts before wiring into the endpoint. 
+Check that POST /submit returns content_id, attribution, 
+confidence, and label fields.
+
+### M4 — Second Signal + Confidence Scoring
+- **Spec sections to provide:** Detection Signals, 
+Confidence Scoring, Architecture diagram
+- **What to ask for:** Signal 2 stylometric heuristics 
+function and scoring logic using the formula: 
+confidence = (llm_score * 0.6) + (stylometric_score * 0.4)
+- **How to verify:** Test with 4 inputs — clearly AI, 
+clearly human, and two borderline cases. Scores should 
+vary meaningfully across all four.
+
+### M5 — Production Layer
+- **Spec sections to provide:** Transparency Labels, 
+Appeals Workflow, Architecture diagram
+- **What to ask for:** Label generation function that 
+maps confidence scores to label text, and POST /appeal 
+endpoint
+- **How to verify:** Test all three label variants are 
+reachable by submitting inputs at different confidence 
+levels. Verify appeal updates status to under_review 
+in the audit log.
