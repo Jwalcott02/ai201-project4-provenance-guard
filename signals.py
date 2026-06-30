@@ -63,3 +63,15 @@ def get_attribution(confidence):
         return "uncertain"
     else:
         return "likely_ai"
+    
+
+def get_label_text(attribution):
+    """
+    Generates a human-readable label text based on confidence and attribution.
+    """
+    if attribution == "likely_human":
+        return "Our system determined that this content is most likely human-written. Your work looks great — enjoy sharing it with your audience!"
+    elif attribution == "uncertain":
+        return "Our system couldn't confidently determine whether this content was AI-generated or human-written. Your content is still visible to others. If you believe this is a mistake, you can submit an appeal and we'll review it manually."
+    else:
+        return "Our system determined that this content is most likely AI generated. Your content is still visible to others. If you believe this is a mistake, please submit an appeal and we'll review it manually."

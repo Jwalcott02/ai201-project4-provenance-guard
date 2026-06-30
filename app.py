@@ -5,12 +5,22 @@ from datetime import datetime, timezone
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 from groq import Groq
-from signals import classify_with_stylometrics, combine_scores, get_attribution
+from signals import classify_with_stylometrics, combine_scores, get_attribution, get_label_text
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 # Load environment variables from .env file
 load_dotenv()
 
+
 app = Flask(__name__)
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=[],
+    storage_uri="memory://",
+)
+app.config["LIMITER_STORAGE_URI"] = "memory://"
 
 # Initialize Groq client
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
@@ -54,9 +64,13 @@ def write_log(entry):
     audit_log.append(entry)
 
 
-# ── Routes ─────────────────────────────────────────────────────────────────────
 @app.route("/submit", methods=["POST"])
+@limiter.limit("10 per minute;100 per day")
 def submit():
+
+
+# ── Routes ─────────────────────────────────────────────────────────────────────
+
     data = request.get_json()
 
     # Validate required fields
@@ -76,7 +90,7 @@ def submit():
     # Combine into final confidence score
     confidence = combine_scores(llm_score, stylometric_score)
     attribution = get_attribution(confidence)
-    label = "Analysis complete. Full label text coming in next milestone."
+    label = get_label_text(attribution)
 
     # Write to audit log
     entry = {
@@ -98,6 +112,34 @@ def submit():
         "label": label
     })
 
+
+@app.route("/appeal", methods=["POST"])
+def appeal():
+    data = request.get_json()
+
+    if not data or "content_id" not in data or "creator_reasoning" not in data:
+        return jsonify({"error": "Missing required fields: content_id, creator_reasoning"}), 400
+
+    content_id = data["content_id"]
+    creator_reasoning = data["creator_reasoning"]
+
+    # Find the matching entry in the audit log
+    found = False
+    for entry in audit_log:
+        if entry["content_id"] == content_id:
+            entry["status"] = "under_review"
+            entry["appeal_reasoning"] = creator_reasoning
+            found = True
+            break
+
+    if not found:
+        return jsonify({"error": "content_id not found"}), 404
+
+    return jsonify({
+        "message": "Appeal received and logged for review.",
+        "content_id": content_id,
+        "status": "under_review"
+    })
 
 @app.route("/log", methods=["GET"])
 def get_log():
