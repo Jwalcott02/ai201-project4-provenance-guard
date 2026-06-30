@@ -139,19 +139,166 @@ confidence is not a constant or a coin-flip binary.
 
 ## Transparency Label
 
-*(placeholder — to be completed in Milestone 5)*
+The `/submit` response includes a `label` field with one of three exact text
+variants, chosen based on the attribution category. All three were written to
+be readable by a non-technical creator — no scores, no jargon, and a clear
+next step where relevant.
+
+**High-confidence AI (confidence > 0.80):**
+> "Our system determined that this content is most likely AI generated. Your content is still visible to others. If you believe this is a mistake, please submit an appeal and we'll review it manually."
+
+**Uncertain (confidence 0.40–0.80):**
+> "Our system couldn't confidently determine whether this content was AI-generated or human-written. Your content is still visible to others. If you believe this is a mistake, you can submit an appeal and we'll review it manually."
+
+**High-confidence Human (confidence < 0.40):**
+> "Our system determined that this content is most likely human-written. Your work looks great — enjoy sharing it with your audience!"
+
+Design notes: the AI and uncertain labels are deliberately not accusatory —
+they state the result as a system determination, confirm the content stays
+visible, and point to the appeal path. The human label drops the appeal
+mention entirely since offering an appeal on good news undermines the
+reassurance. The uncertain label avoids implying the creator did anything
+wrong (e.g. it doesn't suggest they "fix" their writing style).
 
 ## Appeals Workflow
 
-*(placeholder — to be completed in Milestone 5)*
+Any creator who receives a classification they disagree with can submit an
+appeal via `POST /appeal` with two fields: `content_id` (identifying their
+original submission) and `creator_reasoning` (their explanation).
+
+When an appeal is received, the system:
+1. Looks up the matching entry in the audit log by `content_id`
+2. Updates that entry's `status` from `"classified"` to `"under_review"`
+3. Appends the creator's `appeal_reasoning` to the same log entry, preserving
+   the original confidence score and both signal scores
+4. Returns a confirmation with the new status
+
+A human reviewer opening the appeal queue (the `/log` output, filtered to
+`status: "under_review"`) sees the complete picture in one place: the
+original confidence score, both individual signal scores, the label that was
+shown, and the creator's reasoning — everything needed to make a manual call
+without re-running the pipeline.
+
+### Tested end-to-end
+
+A formal academic-style submission scored 0.45 confidence (uncertain). The
+creator appealed:
+
+```json
+{
+  "content_id": "b6211ddf-929b-41e0-9b00-127d77c3eb3d",
+  "creator_id": "test-appeal-user",
+  "timestamp": "2026-06-30T18:59:14.069496+00:00",
+  "attribution": "uncertain",
+  "confidence": 0.45,
+  "llm_score": 0.42,
+  "stylometric_score": 0.5,
+  "status": "under_review",
+  "appeal_reasoning": "I wrote this myself for an economics paper. I write formally because it is an academic topic, not because I used AI."
+}
+```
+
+The status flipped from `classified` to `under_review` and the reasoning was
+preserved alongside the original decision, exactly as designed. Automated
+re-classification is intentionally not implemented — appeals are meant to be
+reviewed by a person.
 
 ## Rate Limiting
 
-*(placeholder — to be completed in Milestone 5)*
+`POST /submit` is limited to **10 requests per minute and 100 per day per
+client**, enforced with Flask-Limiter using in-memory storage.
+
+**Reasoning:** A genuine creator submitting their own work for review would
+rarely submit more than a handful of pieces in a single minute — 10/minute is
+generous headroom for normal use (testing revisions, submitting a few short
+pieces back to back) while still being low enough to stop a script from
+flooding the endpoint with rapid automated requests. The 100/day ceiling
+caps sustained abuse over a longer window without blocking someone who is
+genuinely prolific.
+
+### Tested
+
+Firing 12 rapid requests in a loop produced 10 successful `200` responses
+followed by two `429 Too Many Requests` responses:
+
+```
+200
+200
+200
+200
+200
+200
+200
+200
+200
+200
+429
+429
+```
+
+The 429 response body confirms Flask-Limiter's own messaging:
+
+```
+429 Too Many Requests
+Too Many Requests
+10 per 1 minute
+```
 
 ## Audit Log
 
-*(placeholder — to be completed in Milestone 5)*
+Every call to `/submit` writes a structured entry (JSON, in-memory list) capturing:
+`content_id`, `creator_id`, `timestamp`, `attribution`, `confidence`,
+`llm_score`, `stylometric_score`, and `status`. Appeals append
+`appeal_reasoning` and flip `status` to `under_review` on the same entry
+rather than creating a separate record, so the full history of a submission
+stays in one place.
+
+`GET /log` returns all entries as JSON for documentation and grading
+visibility (in a real deployment this endpoint would require auth).
+
+### Sample entries (from testing)
+
+```json
+{
+  "entries": [
+    {
+      "content_id": "44b74a8b-4266-49b7-8d29-58dafa9e8698",
+      "creator_id": "test-ai",
+      "timestamp": "2026-06-30T18:38:21.753984+00:00",
+      "attribution": "uncertain",
+      "confidence": 0.56,
+      "llm_score": 0.83,
+      "stylometric_score": 0.16,
+      "status": "classified"
+    },
+    {
+      "content_id": "49de3753-a7c4-432b-81f0-202589230d9c",
+      "creator_id": "test-human",
+      "timestamp": "2026-06-30T18:42:02.513410+00:00",
+      "attribution": "likely_human",
+      "confidence": 0.17,
+      "llm_score": 0.21,
+      "stylometric_score": 0.12,
+      "status": "classified"
+    },
+    {
+      "content_id": "b6211ddf-929b-41e0-9b00-127d77c3eb3d",
+      "creator_id": "test-appeal-user",
+      "timestamp": "2026-06-30T18:59:14.069496+00:00",
+      "attribution": "uncertain",
+      "confidence": 0.45,
+      "llm_score": 0.42,
+      "stylometric_score": 0.5,
+      "status": "under_review",
+      "appeal_reasoning": "I wrote this myself for an economics paper. I write formally because it is an academic topic, not because I used AI."
+    }
+  ]
+}
+```
+
+**Known limitation of the log itself:** it is stored in memory and is wiped
+on server restart. A production deployment would persist this to SQLite or a
+real database, as noted in the project's recommended stack.
 
 ## Known Limitations
 
@@ -169,8 +316,47 @@ confidence is not a constant or a coin-flip binary.
 
 ## Spec Reflection
 
-*(to be completed)*
+**How the spec helped:** Defining the confidence thresholds (0.40 / 0.80) and
+writing out the exact label text in planning.md *before* any code existed
+made the Milestone 4 debugging session far faster than it would have been
+otherwise. When the clearly-AI test paragraph came back as "uncertain"
+(0.56) instead of "likely AI," having a pre-written, specific threshold table
+meant we immediately knew that result was a real disagreement between
+signals rather than vague code working "incorrectly" — there was a fixed
+target to measure against instead of an implementation that could be
+rationalized after the fact.
+
+**Where implementation diverged from the plan:** The original plan treated
+the two signals as roughly independent and combined them with a simple fixed
+weighted average. In practice, testing in Milestone 4 surfaced a real
+weakness in the stylometric signal: type-token ratio assumes high vocabulary
+variety signals human writing, but sophisticated AI-generated text (the
+"transformative paradigm shift" test case) also produces high TTR by
+avoiding repetition. Rather than re-tuning the formula to force that one
+test case into the "likely AI" bucket, we kept the original weighting and
+documented the disagreement as a known, honest limitation — the system
+surfacing "uncertain" when its two signals genuinely disagree is arguably
+more correct behavior than confidently forcing the wrong label.
 
 ## AI Usage
 
-*(to be completed)*
+**Instance 1 — Transparency label generation.** I asked Claude to generate a
+`get_label_text()` function mapping attribution categories to label text. The
+first version I wrote myself included the raw confidence score in the
+returned string (e.g. "Confidence: 0.56 - ..."). Claude pointed out this
+worked against the entire point of the label — it was designed in planning.md
+to be readable by a non-technical creator, and showing a raw decimal
+undercuts that. I removed the confidence number and the `confidence`
+parameter entirely, leaving only the plain-language text.
+
+**Instance 2 — Debugging the Milestone 4 score mismatch.** When the clearly
+AI-generated test paragraph returned a combined confidence of 0.56 instead of
+the expected high score, I asked Claude to help debug it. Rather than just
+patching the formula until the test passed, Claude walked me through pulling
+the individual `llm_score` (0.83, correct) and `stylometric_score` (0.16,
+wrong) apart to find which signal was misbehaving, and helped me reason
+through *why* — the text's varied, sophisticated vocabulary produced a high
+TTR, which my formula treats as evidence of human writing. I chose to
+document this as a known limitation in the README rather than alter the
+formula's weighting to force that one test case to pass, since the original
+60/40 LLM-weighted design was a deliberate decision, not an accident.
