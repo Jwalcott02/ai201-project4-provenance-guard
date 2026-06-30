@@ -18,6 +18,22 @@ A submission travels through the following path:
 7. **Audit log** records the full decision
 8. The response returns content_id, attribution, confidence, and label
 
+
+## Demo Video
+
+
+<div>
+    <a href="https://www.loom.com/share/4f5924425a9d44709c087cba22b0a42a">
+      <p>Provenance Guard - Watch Video</p>
+    </a>
+    <a href="https://www.loom.com/share/4f5924425a9d44709c087cba22b0a42a">
+      <img style="max-width:300px;" src="https://cdn.loom.com/sessions/thumbnails/4f5924425a9d44709c087cba22b0a42a-876e37489a6c994e-full-play.gif#t=0.1">
+    </a>
+  </div>
+
+This demo shows Provenance Guard classifying writing live  a clearly AI-generated submission, a case where my two signals disagreed and the system correctly flagged it as uncertain instead of guessing, then the appeals workflow, rate limiting, and audit log in action.
+
+
 **Appeal flow:**
 1. Creator submits content_id and their reasoning to POST /appeal
 2. Content status is updated to "under_review"
