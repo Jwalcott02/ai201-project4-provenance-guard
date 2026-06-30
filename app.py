@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 from groq import Groq
+from signals import classify_with_stylometrics, combine_scores, get_attribution
 
 # Load environment variables from .env file
 load_dotenv()
@@ -68,13 +69,14 @@ def submit():
     # Generate unique ID for this submission
     content_id = str(uuid.uuid4())
 
-    # Run Signal 1
+   # Run both signals
     llm_score = classify_with_llm(text)
+    stylometric_score = classify_with_stylometrics(text)
 
-    # Placeholder values for now (Milestone 4 will replace these)
-    confidence = llm_score
-    attribution = "uncertain"
-    label = "Analysis complete. Full scoring coming in next milestone."
+    # Combine into final confidence score
+    confidence = combine_scores(llm_score, stylometric_score)
+    attribution = get_attribution(confidence)
+    label = "Analysis complete. Full label text coming in next milestone."
 
     # Write to audit log
     entry = {
@@ -84,7 +86,8 @@ def submit():
         "attribution": attribution,
         "confidence": confidence,
         "llm_score": llm_score,
-        "status": "classified"
+        "status": "classified",
+        "stylometric_score": stylometric_score,
     }
     write_log(entry)
 
